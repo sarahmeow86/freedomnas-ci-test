@@ -6,6 +6,10 @@ on:
       images:
         description: images to build after the live ISO (JSON list)
         default: '["debian"]'
+      freebsd:
+        description: also build the FreeBSD live ISO and image
+        type: boolean
+        default: false
       live_from_run:
         description: reuse the live ISO of this earlier run id (empty = build it)
         default: ''
@@ -105,3 +109,71 @@ jobs:
       - name: Install log
         if: always()
         run: tail -n 60 freedomnas-image-builder/*/*.install.log 2>/dev/null || true
+
+  freebsd-live-iso:
+    if: inputs.freebsd
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Machine
+        run: |
+          nproc; free -h; df -h /; ls -l /dev/kvm
+
+      - name: Host tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils xorriso xz-utils rsync python3-venv
+
+      - name: Clone the sources from Codeberg
+        run: |
+          for r in $REPOS; do
+            git clone -q --depth 1 --branch dev "https://codeberg.org/FreedomNAS/freedomnas-$r.git" "freedomnas-$r"
+          done
+
+      - name: Build the FreeBSD live ISO
+        run: |
+          start=$(date +%s)
+          sudo env FNAS_CHANNEL=dev FNAS_CACHE_DIR="$RUNNER_TEMP/freebsd-cache" FREEBSD_BACKEND=qemu \
+            freedomnas-image-builder/freebsd/live.sh "$PWD/freedomnas-live-freebsd.iso"
+          echo "FreeBSD live ISO built in $(( ($(date +%s) - start) / 60 )) min"
+          ls -l freedomnas-live-freebsd.iso
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-live-iso
+          path: freedomnas-live-freebsd.iso
+          retention-days: 1
+          compression-level: 0
+
+  freebsd-image:
+    needs: freebsd-live-iso
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Host tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils xorriso xz-utils rsync zstd python3-venv
+
+      - name: Clone the sources from Codeberg
+        run: |
+          for r in $REPOS; do
+            git clone -q --depth 1 --branch dev "https://codeberg.org/FreedomNAS/freedomnas-$r.git" "freedomnas-$r"
+          done
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: freebsd-live-iso
+          path: ci
+
+      - name: Build the image
+        run: |
+          start=$(date +%s)
+          sudo env FNAS_FREEBSD_LIVE_ISO="$PWD/ci/freedomnas-live-freebsd.iso" FNAS_CHANNEL=dev \
+            sh freedomnas-image-builder/freebsd/build.sh "$PWD/freedomnas-image-builder/freebsd/freebsd.img"
+          echo "freebsd built in $(( ($(date +%s) - start) / 60 )) min"
+          ls -l freedomnas-image-builder/freebsd/
+
+      - name: Install log
+        if: always()
+        run: tail -n 60 freedomnas-image-builder/freebsd/*.install.log 2>/dev/null || true

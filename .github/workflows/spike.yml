@@ -6,23 +6,26 @@ on:
       images:
         description: images to build after the live ISO (JSON list)
         default: '["debian"]'
+      live_from_run:
+        description: reuse the live ISO of this earlier run id (empty = build it)
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
 
 env:
   REPOS: core profiles installer webui docs image-builder
 
 jobs:
   live-iso:
+    if: inputs.live_from_run == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
       - name: Machine
         run: |
           nproc; free -h; df -h / /mnt; ls -l /dev/kvm || true
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h / /mnt
 
       - name: Host tools
         run: |
@@ -44,7 +47,7 @@ jobs:
             freedomnas-image-builder/live/build.sh "$PWD/freedomnas-live.iso"
           echo "live ISO built in $(( ($(date +%s) - start) / 60 )) min"
           ls -l freedomnas-live.iso
-          df -h / /mnt
+          df -h /
 
       - uses: actions/upload-artifact@v4
         with:
@@ -55,6 +58,7 @@ jobs:
 
   image:
     needs: live-iso
+    if: ${{ !cancelled() && (needs.live-iso.result == 'success' || inputs.live_from_run != '') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     strategy:
@@ -62,10 +66,9 @@ jobs:
       matrix:
         image: ${{ fromJSON(inputs.images) }}
     steps:
-      - name: Free disk space
+      - name: Machine
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h / /mnt; ls -l /dev/kvm
+          nproc; free -h; df -h /; ls -l /dev/kvm
 
       - name: Host tools
         run: |
@@ -81,7 +84,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: live-iso
-          path: /mnt/ci
+          path: ci
+          run-id: ${{ inputs.live_from_run || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Build the image
         run: |
@@ -90,12 +95,12 @@ jobs:
             *) edition=${{ matrix.image }} init= ;;
           esac
           start=$(date +%s)
-          sudo env FNAS_LIVE_ISO=/mnt/ci/freedomnas-live.iso FNAS_CHANNEL=dev \
+          sudo env FNAS_LIVE_ISO="$PWD/ci/freedomnas-live.iso" FNAS_CHANNEL=dev \
             sh freedomnas-image-builder/$edition/build.sh $init \
             "$PWD/freedomnas-image-builder/$edition/${{ matrix.image }}.img"
           echo "${{ matrix.image }} built in $(( ($(date +%s) - start) / 60 )) min"
           ls -l freedomnas-image-builder/$edition/
-          df -h / /mnt
+          df -h /
 
       - name: Install log
         if: always()

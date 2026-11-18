@@ -1,0 +1,96 @@
+name: Kernel trial
+
+# Times the FreedomNAS kernel build on GitHub-hosted runners (4 vCPU,
+# 6 h per job) to decide whether the kernel can leave the local runner.
+# Nothing is signed or published. The ccache is kept with actions/cache,
+# so the first run measures a cold build and the next ones a warm build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ccache:
+        description: Use the actions/cache ccache
+        type: boolean
+        default: true
+
+jobs:
+  arch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install the tooling
+        run: pacman -Syu --noconfirm --needed git curl python gnupg zstd tar ccache
+
+      - name: Machine
+        run: |
+          nproc
+          free -g
+          df -h / "$GITHUB_WORKSPACE"
+
+      - name: Restore the ccache
+        if: inputs.ccache
+        uses: actions/cache@v4
+        with:
+          path: /ccache
+          key: ccache-arch-${{ github.run_id }}
+          restore-keys: ccache-arch-
+
+      - name: Check out the sources
+        run: |
+          git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/freedomnas-arch freedomnas-arch
+          git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/linux-freedomnas linux-freedomnas
+
+      - name: Build the kernel
+        run: |
+          cd freedomnas-arch
+          start=$(date +%s)
+          if [ "${{ inputs.ccache }}" = true ]; then export CCACHE_DIR=/ccache; fi
+          MAKEFLAGS="-j$(nproc)" sh bin/build-inside.sh 1000 "$GITHUB_WORKSPACE/linux-freedomnas" "$GITHUB_WORKSPACE/out" "$GITHUB_WORKSPACE/work/linux-freedomnas"
+          echo "KERNEL BUILD TIME: $(( ($(date +%s) - start) / 60 )) min" | tee -a "$GITHUB_STEP_SUMMARY"
+          ls -la "$GITHUB_WORKSPACE/out"
+
+      - name: Make the ccache readable for the cache upload
+        if: always() && inputs.ccache
+        run: chmod -R a+rX /ccache || true
+
+  debian:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    container:
+      image: debian:trixie
+    steps:
+      - name: Install the tooling
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            ca-certificates ccache curl git rsync zstd \
+            build-essential dpkg-dev debhelper fakeroot python3
+
+      - name: Machine
+        run: |
+          nproc
+          free -g
+          df -h / "$GITHUB_WORKSPACE"
+
+      - name: Restore the ccache
+        if: inputs.ccache
+        uses: actions/cache@v4
+        with:
+          path: /ccache
+          key: ccache-debian-${{ github.run_id }}
+          restore-keys: ccache-debian-
+
+      - name: Check out the sources
+        run: |
+          git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/freedomnas-deb freedomnas-deb
+          git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/linux-freedomnas linux-freedomnas
+
+      - name: Build the kernel
+        run: |
+          cd freedomnas-deb
+          start=$(date +%s)
+          if [ "${{ inputs.ccache }}" = true ]; then export CCACHE_DIR=/ccache; fi
+          INSTALL_BUILD_DEPS=1 COMPONENT=dev bin/build-kernel-debs.sh "$GITHUB_WORKSPACE/linux-freedomnas"
+          echo "KERNEL BUILD TIME: $(( ($(date +%s) - start) / 60 )) min" | tee -a "$GITHUB_STEP_SUMMARY"

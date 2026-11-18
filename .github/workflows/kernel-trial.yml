@@ -8,6 +8,10 @@ name: Kernel trial
 on:
   workflow_dispatch:
     inputs:
+      only:
+        description: Run only this job (arch, debian or empty for both)
+        type: string
+        default: ''
       ccache:
         description: Use the actions/cache ccache
         type: boolean
@@ -15,10 +19,13 @@ on:
 
 jobs:
   arch:
+    if: inputs.only == '' || inputs.only == 'arch'
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     container:
       image: archlinux:base-devel
+      # codeberg.org did not resolve through the default container DNS
+      options: --dns 1.1.1.1 --dns 9.9.9.9
     steps:
       - name: Install the tooling
         run: pacman -Syu --noconfirm --needed git curl python gnupg zstd tar ccache
@@ -39,6 +46,7 @@ jobs:
 
       - name: Check out the sources
         run: |
+          cat /etc/resolv.conf; grep hosts /etc/nsswitch.conf; getent ahosts codeberg.org || true
           for i in 1 2 3 4 5; do git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/freedomnas-arch freedomnas-arch && break; rm -rf freedomnas-arch; sleep 20; done; test -d freedomnas-arch
           for i in 1 2 3 4 5; do git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/linux-freedomnas linux-freedomnas && break; rm -rf linux-freedomnas; sleep 20; done; test -d linux-freedomnas
 
@@ -56,6 +64,7 @@ jobs:
         run: chmod -R a+rX /ccache || true
 
   debian:
+    if: inputs.only == '' || inputs.only == 'debian'
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     container:

@@ -26,7 +26,7 @@ jobs:
       - name: Machine
         run: |
           nproc
-          free -g
+          free -g || true
           df -h / "$GITHUB_WORKSPACE"
 
       - name: Restore the ccache
@@ -39,8 +39,8 @@ jobs:
 
       - name: Check out the sources
         run: |
-          git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/freedomnas-arch freedomnas-arch
-          git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/linux-freedomnas linux-freedomnas
+          for i in 1 2 3 4 5; do git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/freedomnas-arch freedomnas-arch && break; rm -rf freedomnas-arch; sleep 20; done; test -d freedomnas-arch
+          for i in 1 2 3 4 5; do git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/linux-freedomnas linux-freedomnas && break; rm -rf linux-freedomnas; sleep 20; done; test -d linux-freedomnas
 
       - name: Build the kernel
         run: |
@@ -65,13 +65,13 @@ jobs:
         run: |
           apt-get update -qq
           apt-get install -y --no-install-recommends \
-            ca-certificates ccache curl git rsync zstd \
+            ca-certificates ccache curl git procps rsync zstd \
             build-essential dpkg-dev debhelper fakeroot python3
 
       - name: Machine
         run: |
           nproc
-          free -g
+          free -g || true
           df -h / "$GITHUB_WORKSPACE"
 
       - name: Restore the ccache
@@ -84,8 +84,8 @@ jobs:
 
       - name: Check out the sources
         run: |
-          git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/freedomnas-deb freedomnas-deb
-          git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/linux-freedomnas linux-freedomnas
+          for i in 1 2 3 4 5; do git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/freedomnas-deb freedomnas-deb && break; rm -rf freedomnas-deb; sleep 20; done; test -d freedomnas-deb
+          for i in 1 2 3 4 5; do git clone --depth 1 --branch dev https://codeberg.org/FreedomNAS/linux-freedomnas linux-freedomnas && break; rm -rf linux-freedomnas; sleep 20; done; test -d linux-freedomnas
 
       - name: Build the kernel
         run: |
